@@ -28,20 +28,32 @@ const dumpToFile = async (path: string) => {
 
   await new Promise((resolve, reject) => {
     exec(
-      `pg_dump ${env.BACKUP_DATABASE_URL} -F t | gzip > ${path}`,
-      (error, _, stderr) => {
-        if (error) {
-          reject({ error: JSON.stringify(error), stderr });
-          return;
-        }
+        `pg_dump ${env.BACKUP_DATABASE_URL} -F t`,
+        (error, stdout, stderr) => {
+          if (error) {
+            reject({ error: JSON.stringify(error), stderr });
+            return;
+          }
 
-        resolve(undefined);
-      }
+          if (stderr) {
+            console.error(`pg_dump error: ${stderr}`);
+            reject(new Error(`pg_dump failed: ${stderr}`));
+            return;
+          }
+
+          const gzip = exec(`gzip > ${path}`);
+          gzip.stdin.write(stdout);
+          gzip.stdin.end();
+
+          gzip.on('close', resolve);
+          gzip.on('error', (err) => reject({ error: JSON.stringify(err) }));
+        }
     );
   });
 
   console.log("DB dumped to file...");
 };
+
 
 const deleteFile = async (path: string) => {
   console.log("Deleting file...");
