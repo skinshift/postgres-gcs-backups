@@ -41,9 +41,14 @@ const dumpToFile = async (path: string) => {
             return;
           }
 
-          const gzip = exec(`gzip > ${path}`);
-          gzip.stdin.write(stdout);
-          gzip.stdin.end();
+            const gzip = exec(`gzip > ${path}`);
+
+            if (gzip.stdin) {
+                gzip.stdin.write(stdout);
+                gzip.stdin.end();
+            } else {
+                throw new Error('gzip stdin is null');
+            }
 
           gzip.on('close', resolve);
           gzip.on('error', (err) => reject({ error: JSON.stringify(err) }));
