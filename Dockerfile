@@ -1,26 +1,31 @@
-FROM node:16-alpine AS build
+FROM node:20.11.1-alpine AS build
 
-WORKDIR /root
+ENV NPM_CONFIG_UPDATE_NOTIFIER=false
+ENV NPM_CONFIG_FUND=false
 
-RUN apk add --update --no-cache npm
+WORKDIR /app
 
 COPY package*.json ./
+COPY package-lock*.json ./
 COPY tsconfig.json ./
 COPY src ./src
 
-RUN npm install
+RUN npm ci && \
+    npm run build && \
+    npm prune --production
 
-RUN npm run build
+FROM node:20.11.1-alpine
 
-RUN npm prune --production
+WORKDIR /app
 
-FROM node:16-alpine
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/dist ./dist
+COPY --from=build /app/package.json ./
 
-WORKDIR /root
+ARG PG_VERSION='16'
 
-COPY --from=build /root/node_modules ./node_modules
-COPY --from=build /root/dist ./dist
+RUN apk add --update --no-cache postgresql${PG_VERSION}-client
 
-RUN apk add --update --no-cache postgresql-client~=15
-
-ENTRYPOINT ["node", "dist/index.js"]
+CMD pg_isready --dbname=$BACKUP_DATABASE_URL && \
+    pg_dump --version && \
+    node dist/index.js
