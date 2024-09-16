@@ -1,6 +1,8 @@
 import { exec } from "child_process";
 import { Storage, UploadOptions } from "@google-cloud/storage";
 import { unlink } from "fs";
+import { spawn } from "child_process";
+import { createWriteStream } from "fs";
 
 import { env } from "./env";
 
@@ -26,37 +28,36 @@ const uploadToGCS = async ({ name, path }: { name: string; path: string }) => {
 const dumpToFile = async (path: string) => {
   console.log("Dumping DB to file...");
 
-  await new Promise((resolve, reject) => {
-    exec(
-        `pg_dump ${env.BACKUP_DATABASE_URL} -F t`,
-        (error, stdout, stderr) => {
-          if (error) {
-            reject({ error: JSON.stringify(error), stderr });
-            return;
-          }
+  return new Promise((resolve, reject) => {
+    const dumpProcess = spawn("pg_dump", [`${env.BACKUP_DATABASE_URL}`, "-F", "t"]);
 
-          if (stderr) {
-            console.error(`pg_dump error: ${stderr}`);
-            reject(new Error(`pg_dump failed: ${stderr}`));
-            return;
-          }
+    const gzipProcess = spawn("gzip");
 
-            const gzip = exec(`gzip > ${path}`);
+    const writeStream = createWriteStream(path);
 
-            if (gzip.stdin) {
-                gzip.stdin.write(stdout);
-                gzip.stdin.end();
-            } else {
-                throw new Error('gzip stdin is null');
-            }
+    dumpProcess.stdout.pipe(gzipProcess.stdin);
+    gzipProcess.stdout.pipe(writeStream);
 
-          gzip.on('close', resolve);
-          gzip.on('error', (err) => reject({ error: JSON.stringify(err) }));
-        }
-    );
+    dumpProcess.stderr.on("data", (data) => {
+      console.error(`pg_dump error: ${data}`);
+      reject(new Error(`pg_dump failed: ${data}`));
+    });
+
+    gzipProcess.stderr.on("data", (data) => {
+      console.error(`gzip error: ${data}`);
+      reject(new Error(`gzip failed: ${data}`));
+    });
+
+    writeStream.on("finish", () => {
+      console.log("DB dumped to file...");
+      resolve(undefined);
+    });
+
+    writeStream.on("error", (error) => {
+      console.error(`File write error: ${error}`);
+      reject(error);
+    });
   });
-
-  console.log("DB dumped to file...");
 };
 
 
